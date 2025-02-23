@@ -8,6 +8,9 @@ This repository provides a tool to overwrite a USB-Drive data with random patter
 Credits:  [https://www.youtube.com/watch?v=iyBfQXmyH4o]()
 
 ```bash
+VM_LINUX_PATH="/mnt/c/PIN/Tools/WSL/vmlinux"
+echo "VM_LINUX_PATH $VM_LINUX_PATH"
+
 # If If you have mounted an NTFS-formatted USB drive
 # sudo mount -t drvfs D: /mnt/d
 
@@ -165,6 +168,7 @@ cat .config | grep CONFIG_X86=y
 
 ######################################################################################
 
+make menuconfig
 # Enter to Device Drivers / USB Support / press 'Y'
 # Also DISABLE ANY refernce to the # Binary Emulations CONFIG_IA32_EMULATION 
 # ==> Go to Processor type and features, ensure x32 ABI is disabled , 
@@ -174,6 +178,11 @@ cat .config | grep CONFIG_X86=y
 # AMD Secure Memory Encryption (SME) support
 # also Check Power management and ACPI options 
 
+# In Networking support / network options /  Network packet filtering framework (Netfilter) / Core Netfilter / Netfilter Xtables support (required for ip_tables) 
+
+# In Networking support / network options /  Network packet filtering framework (Netfilter) / Core Netfilter / set target and match support 
+
+# | / DISABLE xt_HL  / Xtables targets & Xtables matches
 
 # troubleshoot
 #ls -al ./include/linux/netfilter_ipv4/ipt_ECN.h # /!\ File is MISSING !
@@ -229,29 +238,72 @@ grep -rnw include/ -e "struct ipt_ECN_info"
 grep CONFIG_NETFILTER_XT_TARGET_HL=y  .config
 grep CONFIG_NETFILTER_XT_MATCH_HL=y  .config
 find . -name '*xt_HL*'
+find ./net -name '*xt*'
 modinfo xt_HL
 lsmod | grep xt_HL
 
+sed -i 's/CONFIG_NETFILTER_XT_TARGET_HL=y/CONFIG_NETFILTER_XT_TARGET_HL=n/' .config
+sed -i 's/CONFIG_NETFILTER_XT_MATCH_HL=y/CONFIG_NETFILTER_XT_MATCH_HL=n/' .config
+grep CONFIG_NETFILTER_XT_TARGET_HL .config
+grep CONFIG_NETFILTER_XT_MATCH_HL .config
+
+sed -i 's/CONFIG_NETFILTER_XT_TARGET_TCPMSS=y/CONFIG_NETFILTER_XT_TARGET_TCPMSS=n/' .config
+sed -i 's/CONFIG_NETFILTER_XT_MATCH_TCPMSS=y/CONFIG_NETFILTER_XT_MATCH_TCPMSS=n/' .config
+
+grep CONFIG_NETFILTER_XT_TARGET_TCPMSS .config
+grep CONFIG_NETFILTER_XT_MATCH_TCPMSS .config
+
+scripts/config --disable CONFIG_NETFILTER_XT_TARGET_HL
+scripts/config --disable CONFIG_NETFILTER_XT_MATCH_HL
 
 grep CONFIG_NETFILTER=y .config
 grep CONFIG_NETFILTER .config
 grep CONFIG_IP_NF_TARGET_ECN=y .config
+
+cat net/netfilter/Makefile | grep "xt_HL.o"
+cat net/netfilter/Makefile | grep "CONFIG_NETFILTER_XT_TARGET_HL"
+
+# In net/netfilter/Makefile, comment the lines below:
+# obj-$(CONFIG_NETFILTER_XT_MATCH_HL) += xt_hl.o
+# obj-$(CONFIG_NETFILTER_XT_TARGET_TCPMSS) += xt_TCPMSS.o
+# obj-$(CONFIG_NETFILTER_XT_TARGET_HL) += xt_HL.o
+
 # git log -- net/ipv4/netfilter/ipt_ECN.c
 
-sudo make clean
-sudo make mrproper
+sudo apt update
+sudo apt install dwarves
+
+# sudo make clean
+mkdir /tmp/make
+# sudo make mrproper O=/tmp/make EXCLUDE_DOCS=1
 
 # rm -rf build/
 # rm -rf .tmp/
 # rm -rf .dep/
 # make dep
 
+# make olddefconfig
 sudo make -j$(nproc) CFLAGS="-I ./include -H"
 sudo make modules_install -j$(nproc)
 sudo make install -j$(nproc)
 
+# BTF (BPF Type Format) est un format de débogage compact utilisé pour fournir des informations sur les types de données du noyau Linux. 
+# Il est essentiel pour certaines fonctionnalités avancées de BPF (eBPF)
+# pahole -C task_struct vmlinux.o
+# pahole --btf_encode_det vmlinux.o
+
+# Warning: "Clock skew detected"
+# ➜ Cela signifie que l’horloge du système de fichiers n'est pas synchronisée. Si tu compiles sur un disque monté via WSL, une VM, ou un système de fichiers réseau, cela peut causer des problèmes.
+
+# /!\ Dans WSL2 la commande hwclock n'est pas disponible, car il n'y a pas d'accès direct au matériel, notamment aux horloges système en temps réel comme dans une machine physique.
+
+# Solution :
+# sudo hwclock -w # pour synchroniser l'horloge matérielle avec le système.
+# date && hwclock # Vérifie la synchronisation avec 
+timedatectl
+
 ls -al vmlinux
-cp -rf vmlinux /mnt/c/github/"$OS_VER-microsoft-standard"
+cp -rf vmlinux $VM_LINUX_PATH # /mnt/c/github/"$OS_VER-microsoft-standard"
 
 ```
 
@@ -262,14 +314,25 @@ $Env:UserName
 # set the right path for C:\sources\vmlinux , ex: "C:\5.15.167.4-microsoft-standard"
 @"
 [WSL2]
-kernel=C:\sources\vmlinux
+kernel=C:\\sources\\vmlinux
 "@ | Set-Content -Path "$Env:UserProfile\.wslconfig"
+
+wsl --shutdown
+wsl
+
+usbipd list
+$BUS_ID="7-2" # example in my case, take the right one for you
+usbipd bind --busid $BUS_ID
+usbipd attach --wsl --busid $BUS_ID
 ```
 
 ```bash
+lsusb
+lsblk
+ls -al /dev/sdd*
+
 # If omitted, the default filesystem type is "ext4".
 mkdir /mnt/d
-ls -al /dev/sdd*
 sudo mount /dev/sdd1 /mnt/d
 ls -al /mnt/d
 
