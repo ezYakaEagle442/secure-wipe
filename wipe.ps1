@@ -1,5 +1,16 @@
+#############################################################################
+#
+# usage: powershell.exe -NoProfile -ExecutionPolicy Bypass "./wipe.ps1"
+#
+#############################################################################
+
 # Script PowerShell pour effectuer un wipe sécurisé sur un disque ou clé USB
 # Remplacer 'X' par la lettre de votre disque ou clé USB (ex: "D", "E", etc.)
+
+#$OutputEncoding = New-Object -typename System.Text.UTF8Encoding
+#[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# $OutputEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding=[Text.Encoding]::Unicode
 
 $diskPath = "D:\"  # Remplacez par le chemin du disque à effacer (par exemple, "E:\")
 $blockSize = 4096  # Taille du bloc à écrire (4096 octets)
@@ -7,7 +18,7 @@ $passes = 3  # Nombre de passes de suppression (0xFF, 0x00, puis données aléat
 
 # Définir la taille du volume (en bytes, ici 1 Go pour l'exemple)
 # # 1 Gb = 1024 Mb = 1024 * 1024 Kb = 1024 * 1024 * 1024 bytes = 1073741824 bytes = 8 589 934 592 bits
-$data_volume_size = 1GB # 1 Go en bytes
+$data_volume_size = 1GB # 1 Go en bytes 
 
 # TODO: implement DOD policy (DOD 5220.22-M)
 # https://www.dcsa.mil/about/news/Article/2955986/dcsa-oversight-of-nispom-rules-sead-3-requirements-began-march-1/
@@ -24,33 +35,53 @@ $data_volume_size = 1GB # 1 Go en bytes
 # PowerShell 7.4 inclut Get-SecureRandom, ce qui garantit une sécurité par chiffrement aléatoire.
 # https://learn.microsoft.com/fr-fr/powershell/module/microsoft.powershell.utility/get-securerandom?view=powershell-7.5
 
-# Script pour effacer un disque/clé USB en utilisant un chiffrement aléatoire sécurisé
-# Cette méthode génère des données aléatoires sécurisées pour écraser un disque/clé USB.
-function Get-SecureByte {
-    # Utilisation de Get-SecureRandom pour garantir un chiffrement sécurisé
-    $secureByte = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(1)
-    return $secureByte[0]
+# Fonction pour écrire des données sécurisées sur le disque
+function Wipe {
+    param (
+        [string]$path,
+        [long]$size
+    )
+
+    # Crée ou ouvre le fichier en mode ajout
+    $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
+
+    try {
+        $buffer = New-Object byte[] 4096  # Utilisation d'un buffer de 4 Ko
+        $bytesWritten = 0
+
+        while ($bytesWritten -lt $size) {
+            # Remplir le buffer avec des données sécurisées
+            $secureRandomBytes = Get-SecureRandom -Length 4096
+            $stream.Write($secureRandomBytes, 0, $secureRandomBytes.Length)
+            $bytesWritten += $secureRandomBytes.Length
+        }
+    }
+    finally {
+        $stream.Close()
+    }
 }
 
-$progress = 0
 
-# Créer un fichier ou accéder au disque cible
-# Remplacez ce chemin par le chemin vers le disque ou la clé USB
-$diskPath = "D:\"
+Write-Host "Have you read carefully the README file ?[Yes/No]: "
+$READ_CHECK = Read-Host
+Write-Host ""
 
-# Créer un flux pour écrire les données sécurisées
-$fileStream = [System.IO.File]::OpenWrite($diskPath)
+if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
+    log MAIN WIPE START
 
-# Boucle pour écrire les données sécurisées sur le disque
-for ($i = 0; $i -lt $data_volume_size; $i++) {
-    $byte = Get-SecureByte
-    $fileStream.WriteByte($byte)
+    Write-Host "diskPath : $diskPath"
+    Write-Host "blockSize: $blockSize"
+    Write-Host "passes: $passes"
+    Write-Host "data_volume_size: $data_volume_size"
 
-    # Affichage de la progression
-    $progress = ($i / $data_volume_size) * 100
-    Write-Progress -PercentComplete $progress -Activity "Effacement en cours" -Status "$progress% terminé"
+    # Wipe -path $diskPath -size $data_volume_size
+    Write-Host "Les données ont été écrites de manière sécurisée sur $diskPath."
+    log MAIN WIPE END
+} else {
+    Write-Host "You should read carefully the README file ..."
 }
 
-# Fermer le flux une fois terminé
-$fileStream.Close()
-Write-Host "Effacement sécurisé terminé."
+exit $LastExitCode
+
+
+
