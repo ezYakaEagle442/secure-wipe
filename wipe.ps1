@@ -31,6 +31,11 @@ pwsh.exe -v
 $diskPath = "D"  # Remplacez par le chemin du disque à effacer (par exemple, "E:\")
 $blockSize = 65536 # Taille du bloc à écrire 64 Ko (ou 4096 octets mais c'est plus lent)
 $passes = 3  # Nombre de passes de suppression (0xFF, 0x00, puis données aléatoires)
+$WIPE_OUT = "wipe.txt"
+
+$DISK_ID=1 # (Get-Partition -DriveLetter ${diskPath}).DiskNumber
+$FILE_SYSTEM = "FAT32"
+$FILE_SYSTEM_LABEL = "Pinpin_42Gb"
 
 # Définir la taille du volume (en bytes, ici 1 Go pour l'exemple)
 # # 1 Gb = 1024 Mb = 1024 * 1024 Kb = 1024 * 1024 * 1024 bytes = 1073741824 bytes = 8 589 934 592 bits
@@ -47,7 +52,7 @@ $ScriptPath = split-path $SCRIPT:MyInvocation.MyCommand.Path -parent
 #Return codes
 $ReturnCodes = @{"OK" = 0;
 				"PIN-SYS-1" = 196;
-				"PIN_ERR_001_XXX_NOT_FOUND" = 1603;				
+				"PIN_ERR_001_ACCESS_DENIED" = 1603; # Access to the path 'D:\' is denied.				
 				}
 
 #$OutputEncoding = New-Object -typename System.Text.UTF8Encoding
@@ -161,11 +166,15 @@ function Wipe {
         [long]$size
     )
 
+    Write-Host "+++ Wipe START"
+    Write-Host "+++ Wipe path: ${path}"
+    Write-Host "+++ Wipe size: ${size}"
+
     # Crée ou ouvre le fichier en mode ajout
     $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
 
     try {
-        $buffer = New-Object byte[] $blockSize  # Utilisation d'un buffer de 4 Ko
+        $buffer = New-Object byte[] $blockSize  # Utilisation d'un buffer de 4 Ko ou 64 Ko
         $bytesWritten = 0
 
         while ($bytesWritten -lt $size) {
@@ -174,16 +183,67 @@ function Wipe {
             # mais la méthode .Write() attend un tableau de bytes (System.Byte[]).
             # $secureRandomBytes = Get-SecureRandom -Count $blockSize
             # $secureRandomBytes = [byte[]](Get-SecureRandom -Count $blockSize)
-            $secureRandomBytes = Get-SecureRandom -Minimum 0 -Maximum 255 -Count $blockSize | ForEach-Object { [byte]$_ }
+            # $secureRandomBytes = Get-SecureRandom -Minimum 0 -Maximum 255 -Count $blockSize | ForEach-Object { [byte]$_ }
+
+            # https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.randomnumbergenerator?view=net-9.0
+            $secureRandomBytes = New-Object byte[] $blockSize
+            [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($secureRandomBytes)
+
             $stream.Write($secureRandomBytes, 0, $secureRandomBytes.Length)
             $bytesWritten += $secureRandomBytes.Length
+            Write-Progress -Activity "Wiping" -Status "Writing $bytesWritten / $size bytes" -PercentComplete ($bytesWritten / $size * 100)
         }
     }
     finally {
         $stream.Close()
+        Write-Host "+++ Wipe END"
     }
 }
 
+
+function Wipe2 {
+    param (
+        [string]$path,
+        [long]$size,
+        [int]$pass
+    )
+
+    Write-Host "+++ Wipe2 START"
+    # Crée ou ouvre le fichier en mode ajout
+    $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
+
+    try {
+        $bytesWritten = 0
+        $buffer = New-Object byte[] $blockSize  # Utilisation d'un buffer de 64 Ko
+        $rand = Get-SecureRandom # New-Object Get-SecureRandom
+
+        # Remplir le buffer avec des données spécifiques pour chaque passe
+        switch ($pass) {
+            1 {
+                # Première passe : remplir avec 0xFF
+                [Array]::Fill($buffer, 0xFF)
+            }
+            2 {
+                # Deuxième passe : remplir avec 0x00
+                [Array]::Fill($buffer, 0x00)
+            }
+            default {
+                # Dernière passe : données aléatoires
+                $rand.NextBytes($buffer)  # Remplir le buffer avec des données aléatoires
+            }
+        }
+
+        # Écrire sur le Drive
+        while ($bytesWritten -lt $size) {
+            $stream.Write($buffer, 0, $buffer.Length)
+            $bytesWritten += $buffer.Length
+        }
+    }
+    finally {
+        $stream.Close()
+        Write-Host "+++ Wipe2 END"
+    }
+}
 
 Write-Host "Have you read carefully the README file ?[Yes/No]: "
 $READ_CHECK = Read-Host
@@ -197,26 +257,48 @@ if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
     Write-Host "ScriptPath: $ScriptPath"
 
     [int]$osBits = CheckOS
-    Get-Volume -DriveLetter D
+    Get-Volume -DriveLetter "${diskPath}"
 
-    $diskNumber = (Get-Partition -DriveLetter D).DiskNumber
-    Write-Host "diskNumber: $diskNumber"
-    Get-Disk -Number $diskNumber | Select Number, IsReadOnly
-    Set-Disk -Number $diskNumber -IsReadOnly $false
+    Get-Disk
+    # Set-Disk -Number 1 -IsReadOnly $false
 
-    Write-Host "diskPath : $diskPath"
+    $diskNumber = (Get-Partition -DriveLetter "${diskPath}").DiskNumber
+    Write-Host "diskNumber: ${diskNumber}"
+    Get-Disk -Number ${diskNumber} | Select Number, IsReadOnly
+    Set-Disk -Number ${diskNumber} -IsReadOnly $false
+
+    Write-Host "diskPath : ${diskPath}:"
+    Write-Host "OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT}"
     Write-Host "blockSize: $blockSize"
     Write-Host "passes: $passes"
     Write-Host "data_volume_size: $data_volume_size"
     Write-Host ""
     
     for ($i = 1; $i -le $passes; $i++) {
-        Write-Host "Pass $i / $passes"
-        Wipe -path "$diskPath:" -size $data_volume_size
+        Write-Host "I. Pass $i / $passes"
+        Wipe -path "${diskPath}:/${WIPE_OUT}" -size $data_volume_size
         Write-Progress -Activity "Secure Wipe" -Status "Pass $i / $passes" -PercentComplete ($i / $passes * 100)
+        Write-Host "I. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} DELETED."
+        Remove-Item "${diskPath}:/${WIPE_OUT}"
+        Write-Host "I. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} REMOVED."
+        #Clear-Disk -Number $DISK_ID -RemoveData -Confirm:$false
+        #Write-Host "I. Pass OUTPUT WIPE : ${diskPath} CLEARED."
+        Format-Volume -Full -DriveLetter ${diskPath} -FileSystem $FILE_SYSTEM -NewFileSystemLabel $FILE_SYSTEM_LABEL -Confirm:$false
+        Write-Host "I. Pass ${diskPath}: FORMATED."
     }
 
-    Write-Host "The data ont Disk/Drive $diskPath have been securely wiped."
+    for ($i = 1; $i -le $passes; $i++) {
+        Write-Host "II. Pass $i / $passes"
+        Wipe2 -path "${diskPath}:/${WIPE_OUT}" -size $data_volume_size -pass $passes
+        Write-Progress -Activity "Secure Wipe2" -Status "Pass $i / $passes" -PercentComplete ($i / $passes * 100)
+        Remove-Item "${diskPath}:/${WIPE_OUT}"
+        Write-Host "II. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} DELETED."
+        Format-Volume -Full -DriveLetter ${diskPath} -FileSystem $FILE_SYSTEM -NewFileSystemLabel $FILE_SYSTEM_LABEL -Confirm:$false
+        Write-Host "II. Pass ${diskPath}: FORMATED."        
+    }
+
+
+    Write-Host "The data ont Disk/Drive ${diskPath}: have been securely wiped."
     Write-Host ""
     Write-Host MAIN WIPE END
 } else {
@@ -224,6 +306,3 @@ if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
 }
 
 exit $LastExitCode
-
-
-
