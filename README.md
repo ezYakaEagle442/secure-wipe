@@ -333,7 +333,7 @@ ls -al /dev/sdd*
 
 # If omitted, the default filesystem type is "ext4".
 mkdir /mnt/d
-sudo mount /dev/sdd1 /mnt/d
+sudo mount /dev/sdd1 /mnt/d -o umask=0222 # umask=0222 permet de donner les bonnes permissions sur les fichiers (lecture/écriture pour le propriétaire, lecture pour les autres)
 ls -al /mnt/d
 
 # wsl --mount \\.\PHYSICALDRIVE1 D: /mnt/d -t vfat32
@@ -341,12 +341,89 @@ ls -al /mnt/d
 
 # lsblk
 lsblk
+
+cat /etc/group | grep $USER
+# get the group of your user, ex: 1000
+
+# Check WSL conf:
+cat /etc/wsl.conf
+
+mount | grep -i /mnt/d
+# uid=0;gid=0 means it is owned by root
+
+ls -al /etc/wsl.conf
+# sudo chmod g+w /etc/wsl.conf
+
+# Add this section in /etc/wsl.conf
+[automount]
+enabled = true
+options = "metadata"
+mountFsTab = false
+
+cat /etc/wsl.conf 
+
+# Vérifie le type de système de fichiers de la clé USB: vfat pour FAT32
+sudo blkid /dev/sdd1
+
+sudo apt install x2gothinclient-usbmount
+# remount to fix the issue, -t drvfs | -t vfat
+# The most common are ext2, ext3, ext4, xfs, btrfs, vfat, sysfs
+sudo chown -R $USER:$USER /mnt/d
+sudo umount /mnt/d; sudo mount -t vfat /dev/sdd1 /mnt/d -o uid=1000,gid=1000,fmask=0000,dmask=0000 #umask=0222
+sudo chmod u+w /mnt/d
+echo "toto" > /mnt/d/foo.txt
+ls -al /dev/sdd1 
+ls -al /mnt/d
 ```
 
 
 # Secure Wipe USB-Drive
 ```bash
-bash ./python3 wipe.py
+$WIPE_OUT = "wipe.txt"
+$diskPath = "D" 
+$acl = Get-Acl -Path "${diskPath}:\"
+
+$currentUser = $env:USERNAME
+Write-Host "currentUser: $currentUser"
+
+# Run UAC from Windows Start Menu : Contrôle de Compte d'Utilisateur (UAC) 
+# ==> Pour activer l'UAC, déplacez le curseur vers le haut sur "Toujours notifier".
+$permission = "$currentUser", "FullControl", "Allow"
+$accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($permission)
+$acl.AddAccessRule($accessRule)
+Set-Acl -Path "${diskPath}:\" -AclObject $acl
+Get-Acl -Path "${diskPath}:\"
+Set-Volume -DriveLetter $diskPath -IsReadOnly $false
+
+Get-Disk
+Set-Disk -Number 1 -IsReadOnly $false
+
+# test you have the permissions to create a file on the USB-Key
+Add-content "${diskPath}:/${WIPE_OUT}" -value "TEST foobar"
+
+pwsh.exe -NoProfile -ExecutionPolicy Bypass "./wipe.ps1"
+# Clear-Disk -Number 1 -RemoveData -Confirm:$false
+# Format-Volume -DriveLetter D -FileSystem FAT32 -NewFileSystemLabel "Pinpin_42Gb" -Confirm:$false
+# New-Partition -DiskNumber 1 -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem NTFS -Confirm:$false
+
+# troubleshoot
+# Get-Disk -Number 1 | Select-Object -Property IsReadOnly
+# Get-Volume -DriveLetter "${diskPath}"
+# Get-Disk -Number 1 | Clear-Disk -RemoveData
+# Initialize-Disk -Number 1
+# New-Partition -DiskNumber 1 -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem FAT32 -NewFileSystemLabel "Pinpin_1Gb"
+
+
+# diskpart 
+#   list disk
+#   select disk 1
+#   clean
+#   list volume
+#   select volume 5
+#   format fs=fat32 quick
+#   assign  
+
+# bash ./python3 wipe.py
 ```
 
 ```console
