@@ -1,29 +1,148 @@
+Import-Module Microsoft.PowerShell.Utility
+
 #############################################################################
 #
-# usage: powershell.exe -NoProfile -ExecutionPolicy Bypass "./wipe.ps1"
+# usage: pwsh.exe -NoProfile -ExecutionPolicy Bypass "./wipe.ps1"
 #
+# PowerShell 7 utilise pwsh.exe
+# powershell.exe lance toujours la version 5.1.
+# 
 #############################################################################
+
+#############################################################################
+#
+# Pre-requis
+#
+# PowerShell 7 utilise pwsh.exe
+# powershell.exe lance toujours la version 5.1.
+# 
+#############################################################################
+
+$PSH_VER="7.5.0"
+Write-Host "PowerShell Version : $PSH_VER"
+Write-Host "You must download & install https://github.com/PowerShell/PowerShell/releases/download/v$PSH_VER/PowerShell-$PSH_VER-win-x64.msi"
+
+$PSVersionTable.PSVersion
+pwsh.exe -v
 
 # Script PowerShell pour effectuer un wipe sécurisé sur un disque ou clé USB
 # Remplacer 'X' par la lettre de votre disque ou clé USB (ex: "D", "E", etc.)
 
-#$OutputEncoding = New-Object -typename System.Text.UTF8Encoding
-#[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-# $OutputEncoding = [Console]::OutputEncoding
-[Console]::OutputEncoding=[Text.Encoding]::Unicode
-
-$diskPath = "D:\"  # Remplacez par le chemin du disque à effacer (par exemple, "E:\")
-$blockSize = 4096  # Taille du bloc à écrire (4096 octets)
+$diskPath = "D"  # Remplacez par le chemin du disque à effacer (par exemple, "E:\")
+$blockSize = 65536 # Taille du bloc à écrire 64 Ko (ou 4096 octets mais c'est plus lent)
 $passes = 3  # Nombre de passes de suppression (0xFF, 0x00, puis données aléatoires)
 
 # Définir la taille du volume (en bytes, ici 1 Go pour l'exemple)
 # # 1 Gb = 1024 Mb = 1024 * 1024 Kb = 1024 * 1024 * 1024 bytes = 1073741824 bytes = 8 589 934 592 bits
 $data_volume_size = 1GB # 1 Go en bytes 
 
+#Log File
+$LogPath = "$env:windir\Temp"
+$LogFile = "$LogPath\wipe.log"
+
+#Script
+$ScriptName = $MyInvocation.MyCommand.Name
+$ScriptPath = split-path $SCRIPT:MyInvocation.MyCommand.Path -parent
+
+#Return codes
+$ReturnCodes = @{"OK" = 0;
+				"PIN-SYS-1" = 196;
+				"PIN_ERR_001_XXX_NOT_FOUND" = 1603;				
+				}
+
+#$OutputEncoding = New-Object -typename System.Text.UTF8Encoding
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# $OutputEncoding = [Console]::OutputEncoding
+#[Console]::OutputEncoding=[Text.Encoding]::Unicode
+
+Function Write-Log {
+	Param ([string]$logstring)
+	Add-content $LogFile -value $logstring
+	Write-Host $logstring
+}
+
+Function Write-Log-Step{
+	Param ([string]$logstring)
+	$Separator = "#" * ($logstring.length + 25)
+	Write-Log $Separator
+	Write-Log "$(Get-Date -Format G) - $logstring"
+	Write-Log $Separator
+}
+
+Function Write-Log-Sub-Step {
+	Param ([string]$logstring)
+	$Separator = "-" * ($logstring.length + 25)
+	Write-Log $Separator
+	Write-Log "$(Get-Date -Format G) - $logstring"
+	Write-Log $Separator
+}
+
+function CheckOS {
+	Write-Log-Step "Check OS"
+	$OS = Get-WmiObject -class Win32_OperatingSystem
+	Write-Log "OS detected: $($OS.Caption) $($OS.OSArchitecture)"
+	if (($OS.Version -match "10.0.26100") -and ($OS.OSArchitecture -match "64")){
+		Write-Log "This OS is supported"
+		# http://www.samlogic.net/articles/sysnative-folder-64-bit-windows.htm
+		if ((Test-Path -Path $env:windir\SysNative) -eq $true) {
+			Write-Log "32-bit environment of execution detected!"
+			return 32 ;
+		}
+		else {
+			Write-Log "This x64 OS is supported"
+			return 64 ;
+		}
+	}
+	else {
+		if (($OS.Version -match "10.0.26100") -and ($OS.OSArchitecture -match "32")) {
+			Write-Log "This x86 OS is supported"
+			return 32 ;
+		}
+		else {
+			Write-Log "This OS is not supported."
+			TerminateScript "PIN-SYS-1"
+		}
+	}
+}
+
+
+#*********************************************************************
+# Kill Process
+#*********************************************************************
+function KillProcess(){
+	Write-Log-Step "KillProcess START"
+	for ($attempt = 1; $attempt -le 10; $attempt++) {
+		Write-Log-Sub-Step "Searching for running XXX processes (attempt #$attempt)..."
+		#Write-Log "Attempt #$attempt"
+		# $RunningProcesses = Get-Process | Where {($_.name -match "javaw") -or ($_.name -match "javaws") -or ($_.name -match "jp2launcher") -or ($_.name -match "jusched")}
+        $RunningProcesses = Get-Process | Where {($_.name -match "iexplore") -or ($_.name -match "firefox") -or ($_.name -match "chrome")}
+        if ($RunningProcesses.Count -gt 0) {
+			Write-Log "Found the following running xxxxx processes:"
+			ForEach ($xProcess in $RunningProcesses) {
+				Write-Log $xProcess.Name
+			}
+			Write-Log-Sub-Step "Closing all running XXX processes..."
+			ForEach ($xProcess in $RunningProcesses) {
+				Write-Log "$(Get-Date -Format G) - Stopping ""$($xProcess.Name)"" process..."
+				$xProcess | Stop-Process -Force
+				Write-Log "$(Get-Date -Format G) - Process stopped"
+			}
+			#Write-Log "All xxxx processes are now closed"
+			Start-Sleep -Seconds 2
+		}
+		else {
+			Write-Log "Found no running xxx processes"
+			Break
+		}
+	}
+	Write-Log-Step "KillProcess END"
+}
+
 # TODO: implement DOD policy (DOD 5220.22-M)
 # https://www.dcsa.mil/about/news/Article/2955986/dcsa-oversight-of-nispom-rules-sead-3-requirements-began-march-1/
 # https://www.dcsa.mil/Industrial-Security/National-Industrial-Security-Program-Oversight/32-CFR-Part-117-NISPOM-Rule/
 # https://www.federalregister.gov/documents/2020/12/21/2020-27698/national-industrial-security-program-operating-manual-nispom
+
 
 #########################################################################################
 # 
@@ -46,12 +165,16 @@ function Wipe {
     $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
 
     try {
-        $buffer = New-Object byte[] 4096  # Utilisation d'un buffer de 4 Ko
+        $buffer = New-Object byte[] $blockSize  # Utilisation d'un buffer de 4 Ko
         $bytesWritten = 0
 
         while ($bytesWritten -lt $size) {
             # Remplir le buffer avec des données sécurisées
-            $secureRandomBytes = Get-SecureRandom -Length 4096
+            # Get-SecureRandom -Count $blockSize retourne un tableau d'entiers (System.Object[] contenant des entiers Int32), 
+            # mais la méthode .Write() attend un tableau de bytes (System.Byte[]).
+            # $secureRandomBytes = Get-SecureRandom -Count $blockSize
+            # $secureRandomBytes = [byte[]](Get-SecureRandom -Count $blockSize)
+            $secureRandomBytes = Get-SecureRandom -Minimum 0 -Maximum 255 -Count $blockSize | ForEach-Object { [byte]$_ }
             $stream.Write($secureRandomBytes, 0, $secureRandomBytes.Length)
             $bytesWritten += $secureRandomBytes.Length
         }
@@ -67,16 +190,35 @@ $READ_CHECK = Read-Host
 Write-Host ""
 
 if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
-    log MAIN WIPE START
+    Write-Host MAIN WIPE START
+    Write-Host ""
+    
+    Write-Host "ScriptName: $ScriptName"
+    Write-Host "ScriptPath: $ScriptPath"
+
+    [int]$osBits = CheckOS
+    Get-Volume -DriveLetter D
+
+    $diskNumber = (Get-Partition -DriveLetter D).DiskNumber
+    Write-Host "diskNumber: $diskNumber"
+    Get-Disk -Number $diskNumber | Select Number, IsReadOnly
+    Set-Disk -Number $diskNumber -IsReadOnly $false
 
     Write-Host "diskPath : $diskPath"
     Write-Host "blockSize: $blockSize"
     Write-Host "passes: $passes"
     Write-Host "data_volume_size: $data_volume_size"
+    Write-Host ""
+    
+    for ($i = 1; $i -le $passes; $i++) {
+        Write-Host "Pass $i / $passes"
+        Wipe -path "$diskPath:" -size $data_volume_size
+        Write-Progress -Activity "Secure Wipe" -Status "Pass $i / $passes" -PercentComplete ($i / $passes * 100)
+    }
 
-    # Wipe -path $diskPath -size $data_volume_size
-    Write-Host "Les données ont été écrites de manière sécurisée sur $diskPath."
-    log MAIN WIPE END
+    Write-Host "The data ont Disk/Drive $diskPath have been securely wiped."
+    Write-Host ""
+    Write-Host MAIN WIPE END
 } else {
     Write-Host "You should read carefully the README file ..."
 }
