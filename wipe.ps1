@@ -6,7 +6,10 @@ Import-Module Microsoft.PowerShell.Utility
 #
 # PowerShell 7 utilise pwsh.exe
 # powershell.exe lance toujours la version 5.1.
-# 
+#
+# To set PS7 as default in WSL2 Terminal, read:
+# https://learn.microsoft.com/en-us/powershell/scripting/dev-cross-plat/vscode/using-vscode?view=powershell-7.5#adding-your-own-powershell-paths-to-the-session-menu
+#
 #############################################################################
 
 #############################################################################
@@ -20,10 +23,12 @@ Import-Module Microsoft.PowerShell.Utility
 
 $PSH_VER="7.5.0"
 Write-Host "PowerShell Version : $PSH_VER"
+Write-Host ""
 Write-Host "You must download & install https://github.com/PowerShell/PowerShell/releases/download/v$PSH_VER/PowerShell-$PSH_VER-win-x64.msi"
-
+Write-Host ""
 $PSVersionTable.PSVersion
 pwsh.exe -v
+Write-Host ""
 
 # Script PowerShell pour effectuer un wipe sécurisé sur un disque ou clé USB
 # Remplacer 'X' par la lettre de votre disque ou clé USB (ex: "D", "E", etc.)
@@ -33,13 +38,16 @@ $blockSize = 65536 # Taille du bloc à écrire 64 Ko (ou 4096 octets mais c'est 
 $passes = 3  # Nombre de passes de suppression (0xFF, 0x00, puis données aléatoires)
 $WIPE_OUT = "wipe.txt"
 
-$DISK_ID=1 # (Get-Partition -DriveLetter ${diskPath}).DiskNumber
-$FILE_SYSTEM = "FAT32"
-$FILE_SYSTEM_LABEL = "Pinpin_42Gb"
+#$DISK_ID=1 # (Get-Partition -DriveLetter ${diskPath}).DiskNumber
+$FILE_SYSTEM = "NTFS" # "NTFS" | "FAT32"
+$FILE_SYSTEM_LABEL = "Renne_4Gb" # "Pinpin_xxxGb"
 
 # Définir la taille du volume (en bytes, ici 1 Go pour l'exemple)
 # # 1 Gb = 1024 Mb = 1024 * 1024 Kb = 1024 * 1024 * 1024 bytes = 1073741824 bytes = 8 589 934 592 bits
-$data_volume_size = 1GB # 1 Go en bytes 
+# $DISK_SIZE = 4GB # 1 Go en bytes 
+
+$DISK_SIZE = $(Get-Disk -Number 1 | Select-Object @{Name="Size"; Expression={$_.Size * 8}}).Size
+echo $DISK_SIZE
 
 #Log File
 $LogPath = "$env:windir\Temp"
@@ -51,7 +59,7 @@ $ScriptPath = split-path $SCRIPT:MyInvocation.MyCommand.Path -parent
 
 #Return codes
 $ReturnCodes = @{"OK" = 0;
-				"PIN-SYS-1" = 196;
+				"PIN-SYS-1" = 196; # This OS is not supported.
 				"PIN_ERR_001_ACCESS_DENIED" = 1603; # Access to the path 'D:\' is denied.				
 				}
 
@@ -66,7 +74,7 @@ Function Write-Log {
 	Write-Host $logstring
 }
 
-Function Write-Log-Step{
+Function Write-Log-Step {
 	Param ([string]$logstring)
 	$Separator = "#" * ($logstring.length + 25)
 	Write-Log $Separator
@@ -114,7 +122,7 @@ function CheckOS {
 #*********************************************************************
 # Kill Process
 #*********************************************************************
-function KillProcess(){
+function KillProcess() {
 	Write-Log-Step "KillProcess START"
 	for ($attempt = 1; $attempt -le 10; $attempt++) {
 		Write-Log-Sub-Step "Searching for running XXX processes (attempt #$attempt)..."
@@ -147,7 +155,8 @@ function KillProcess(){
 # https://www.dcsa.mil/about/news/Article/2955986/dcsa-oversight-of-nispom-rules-sead-3-requirements-began-march-1/
 # https://www.dcsa.mil/Industrial-Security/National-Industrial-Security-Program-Oversight/32-CFR-Part-117-NISPOM-Rule/
 # https://www.federalregister.gov/documents/2020/12/21/2020-27698/national-industrial-security-program-operating-manual-nispom
-
+# https://www.blancco.com/resources/blog-dod-5220-22-m-wiping-standard-method/#When-and-why-was-DoD-5220.22-M-adopted?
+#  ISO/IEC 27040:2024: https://www.iso.org/standard/80194.html
 
 #########################################################################################
 # 
@@ -166,9 +175,9 @@ function Wipe {
         [long]$size
     )
 
-    Write-Host "+++ Wipe START"
-    Write-Host "+++ Wipe path: ${path}"
-    Write-Host "+++ Wipe size: ${size}"
+    Write-Log-Step "+++ Wipe START"
+    Write-Log-Step "+++ Wipe path: ${path}"
+    Write-Log-Step "+++ Wipe size: ${size}"
 
     # Crée ou ouvre le fichier en mode ajout
     $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
@@ -196,7 +205,7 @@ function Wipe {
     }
     finally {
         $stream.Close()
-        Write-Host "+++ Wipe END"
+        Write-Log-Step "+++ Wipe END"
     }
 }
 
@@ -208,7 +217,12 @@ function Wipe2 {
         [int]$pass
     )
 
-    Write-Host "+++ Wipe2 START"
+    Write-Log-Step "+++ Wipe2 START"
+
+    Write-Log-Step "+++ Wipe2 path: ${path}"
+    Write-Log-Step "+++ Wipe2 size: ${size}"
+    Write-Log-Step "+++ Wipe2 pass: ${pass}"
+
     # Crée ou ouvre le fichier en mode ajout
     $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
 
@@ -220,16 +234,27 @@ function Wipe2 {
         # Remplir le buffer avec des données spécifiques pour chaque passe
         switch ($pass) {
             1 {
-                # Première passe : remplir avec 0xFF
-                [Array]::Fill($buffer, 0xFF)
+                Write-Log-Sub-Step "+++ Wipe2 pass 1: 0xFF"
+                # Première passe : remplir avec 0xFF https://learn.microsoft.com/en-us/answers/questions/1152118/recycle-bin-i-file-header-0xff
+
+                # https://learn.microsoft.com/en-us/powershell/scripting/learn/deep-dives/everything-about-arrays?view=powershell-7.5#initialize-with-0
+                # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_arrays?view=powershell-7.5
+                # https://learn.microsoft.com/en-us/dotnet/api/system.array.fill?view=net-7.0
+                [Array]::Fill($buffer, 0xFF, 0)
             }
             2 {
-                # Deuxième passe : remplir avec 0x00
-                [Array]::Fill($buffer, 0x00)
+                Write-Log-Sub-Step "+++ Wipe2 pass 2: 0x00"
+                # Deuxième passe : remplir avec 0x00 https://learn.microsoft.com/en-us/answers/questions/1152118/recycle-bin-i-file-header-0xff
+                [Array]::Fill($buffer, 0x00, 0)
             }
             default {
-                # Dernière passe : données aléatoires
-                $rand.NextBytes($buffer)  # Remplir le buffer avec des données aléatoires
+                 Write-Log-Sub-Step "+++ Wipe2 pass 3+: Random"
+                # Dernière passe : Remplir le buffer avec des données aléatoires
+                # $rand.NextBytes($buffer) # Method invocation failed because [System.Int32] does not contain a method named 'NextBytes'.
+                [System.Security.Cryptography.RandomNumberGenerator]::Fill($buffer)
+                #[void](Get-Random -SetSeed (Get-SecureRandom) -Minimum 0 -Maximum 255) | ForEach-Object {
+                #    $buffer[$_] = [byte](Get-SecureRandom -Minimum 0 -Maximum 255)
+                #}
             }
         }
 
@@ -241,68 +266,71 @@ function Wipe2 {
     }
     finally {
         $stream.Close()
-        Write-Host "+++ Wipe2 END"
+        Write-Log-Step "+++ Wipe2 END"
     }
 }
+
+[int]$osBits = CheckOS
+Write-Host ""
+Get-Volume -DriveLetter "${diskPath}"
+Write-Host ""
+Get-Disk
+Write-Host ""
+
+# Set-Disk -Number 1 -IsReadOnly $false
 
 Write-Host "Have you read carefully the README file ?[Yes/No]: "
 $READ_CHECK = Read-Host
 Write-Host ""
 
 if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
-    Write-Host MAIN WIPE START
+    Write-Log-Step MAIN WIPE START
     Write-Host ""
     
-    Write-Host "ScriptName: $ScriptName"
-    Write-Host "ScriptPath: $ScriptPath"
-
-    [int]$osBits = CheckOS
-    Get-Volume -DriveLetter "${diskPath}"
-
-    Get-Disk
-    # Set-Disk -Number 1 -IsReadOnly $false
+    Write-Log-Sub-Step "ScriptName: $ScriptName"
+    Write-Log-Sub-Step "ScriptPath: $ScriptPath"
 
     $diskNumber = (Get-Partition -DriveLetter "${diskPath}").DiskNumber
-    Write-Host "diskNumber: ${diskNumber}"
+    Write-Log-Sub-Step "diskNumber: ${diskNumber}"
     Get-Disk -Number ${diskNumber} | Select Number, IsReadOnly
     Set-Disk -Number ${diskNumber} -IsReadOnly $false
 
-    Write-Host "diskPath : ${diskPath}:"
-    Write-Host "OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT}"
-    Write-Host "blockSize: $blockSize"
-    Write-Host "passes: $passes"
-    Write-Host "data_volume_size: $data_volume_size"
-    Write-Host ""
+    Write-Log-Sub-Step "diskPath : ${diskPath}:"
+    Write-Log-Sub-Step "OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT}"
+    Add-content "${diskPath}:/${WIPE_OUT}" -value ""
+    Write-Log-Sub-Step "blockSize: $blockSize"
+    Write-Log-Sub-Step "passes: $passes"
+    Write-Log-Sub-Step "DISK_SIZE: $DISK_SIZE"
+    Write-Log-Sub-Step ""
     
     for ($i = 1; $i -le $passes; $i++) {
-        Write-Host "I. Pass $i / $passes"
-        Wipe -path "${diskPath}:/${WIPE_OUT}" -size $data_volume_size
+        Write-Log-Sub-Step "I. Pass $i / $passes"
+        Wipe -path "${diskPath}:/${WIPE_OUT}" -size $DISK_SIZE
         Write-Progress -Activity "Secure Wipe" -Status "Pass $i / $passes" -PercentComplete ($i / $passes * 100)
-        Write-Host "I. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} DELETED."
+        Write-Log-Sub-Step "I. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} DELETED."
         Remove-Item "${diskPath}:/${WIPE_OUT}"
-        Write-Host "I. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} REMOVED."
+        Write-Log-Sub-Step "I. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} REMOVED."
         #Clear-Disk -Number $DISK_ID -RemoveData -Confirm:$false
         #Write-Host "I. Pass OUTPUT WIPE : ${diskPath} CLEARED."
         Format-Volume -Full -DriveLetter ${diskPath} -FileSystem $FILE_SYSTEM -NewFileSystemLabel $FILE_SYSTEM_LABEL -Confirm:$false
-        Write-Host "I. Pass ${diskPath}: FORMATED."
+        Write-Log-Sub-Step "I. Pass ${diskPath}: FORMATED."
     }
 
     for ($i = 1; $i -le $passes; $i++) {
-        Write-Host "II. Pass $i / $passes"
-        Wipe2 -path "${diskPath}:/${WIPE_OUT}" -size $data_volume_size -pass $passes
+        Write-Log-Sub-Step "II. Pass $i / $passes"
+        Wipe2 -path "${diskPath}:/${WIPE_OUT}" -size $DISK_SIZE -pass $i
         Write-Progress -Activity "Secure Wipe2" -Status "Pass $i / $passes" -PercentComplete ($i / $passes * 100)
         Remove-Item "${diskPath}:/${WIPE_OUT}"
-        Write-Host "II. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} DELETED."
+        Write-Log-Sub-Step "II. Pass OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT} DELETED."
         Format-Volume -Full -DriveLetter ${diskPath} -FileSystem $FILE_SYSTEM -NewFileSystemLabel $FILE_SYSTEM_LABEL -Confirm:$false
-        Write-Host "II. Pass ${diskPath}: FORMATED."        
+        Write-Log-Sub-Step "II. Pass ${diskPath}: FORMATED."        
     }
 
-
-    Write-Host "The data ont Disk/Drive ${diskPath}: have been securely wiped."
+    Write-Log-Step "The data ont Disk/Drive ${diskPath}: have been securely wiped."
     Write-Host ""
-    Write-Host MAIN WIPE END
+    Write-Log-Step MAIN WIPE END
 } else {
-    Write-Host "You should read carefully the README file ..."
+    Write-Log-Step "You should read carefully the README file ..."
 }
 
 exit $LastExitCode
