@@ -407,6 +407,11 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass "./wipe.ps1"
 # New-Partition -DiskNumber 1 -UseMaximumSize -AssignDriveLetter | Format-Volume -FileSystem NTFS -Confirm:$false
 
 # troubleshoot
+# Get-Disk -Number 1 | Select-Object Number, FriendlyName, @{Name="Size(GB)"; Expression={[math]::Round($_.Size / 1GB, 2)}}
+DISK_SIZE = $(Get-Disk -Number 1 | Select-Object Number, FriendlyName, @{Name="Size(GB)"; Expression={[math]::Round($_.Size / 1GB, 2)}})
+$DISK_SIZE = $(Get-Disk -Number 1 | Select-Object @{Name="Size"; Expression={$_.Size * 8}})
+echo $DISK_SIZE
+
 # Get-Disk -Number 1 | Select-Object -Property IsReadOnly
 # Get-Volume -DriveLetter "${diskPath}"
 # Get-Disk -Number 1 | Clear-Disk -RemoveData
