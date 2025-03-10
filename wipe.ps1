@@ -297,12 +297,14 @@ if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
 
     Write-Log-Sub-Step "diskPath : ${diskPath}:"
     Write-Log-Sub-Step "OUTPUT WIPE FILE: ${diskPath}:/${WIPE_OUT}"
-    Add-content "${diskPath}:/${WIPE_OUT}" -value ""
     Write-Log-Sub-Step "blockSize: $blockSize"
     Write-Log-Sub-Step "passes: $passes"
     Write-Log-Sub-Step "DISK_SIZE: $DISK_SIZE"
     Write-Log-Sub-Step ""
-    
+
+    Remove-Item "${diskPath}:\*.*" -Force -Recurse
+    Add-content "${diskPath}:/${WIPE_OUT}" -value ""
+
     for ($i = 1; $i -le $passes; $i++) {
         Write-Log-Sub-Step "I. Pass $i / $passes"
         Wipe -path "${diskPath}:/${WIPE_OUT}" -size $DISK_SIZE
