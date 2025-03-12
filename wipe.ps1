@@ -126,9 +126,7 @@ function KillProcess() {
 	Write-Log-Step "KillProcess START"
 	for ($attempt = 1; $attempt -le 10; $attempt++) {
 		Write-Log-Sub-Step "Searching for running XXX processes (attempt #$attempt)..."
-		#Write-Log "Attempt #$attempt"
-		# $RunningProcesses = Get-Process | Where {($_.name -match "javaw") -or ($_.name -match "javaws") -or ($_.name -match "jp2launcher") -or ($_.name -match "jusched")}
-        $RunningProcesses = Get-Process | Where {($_.name -match "iexplore") -or ($_.name -match "firefox") -or ($_.name -match "chrome")}
+        $RunningProcesses = Get-Process | Where {($_.name -match "firefox") -or ($_.name -match "msedge") -or ($_.name -match "chrome")}
         if ($RunningProcesses.Count -gt 0) {
 			Write-Log "Found the following running xxxxx processes:"
 			ForEach ($xProcess in $RunningProcesses) {
