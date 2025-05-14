@@ -5,7 +5,9 @@ This repository provides a tool to overwrite a USB-Drive data with random patter
 - To Mount Disk : [https://learn.microsoft.com/en-us/windows/wsl/wsl2-mount-disk](https://learn.microsoft.com/en-us/windows/wsl/wsl2-mount-disk)
 - To mount USB Drives : [https://learn.microsoft.com/en-us/windows/wsl/connect-usb](https://learn.microsoft.com/en-us/windows/wsl/connect-usb)
 
-Credits:  [https://www.youtube.com/watch?v=iyBfQXmyH4o]()
+Credits:  [https://www.youtube.com/watch?v=iyBfQXmyH4o](https://www.youtube.com/watch?v=iyBfQXmyH4o)
+
+Other option, you can use [Dban](https://dban.org)
 
 ```bash
 VM_LINUX_PATH="/mnt/c/PIN/Tools/WSL/vmlinux"
