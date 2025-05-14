@@ -47,7 +47,7 @@ $FILE_SYSTEM_LABEL = "Renne_4Gb" # "Pinpin_xxxGb"
 # $DISK_SIZE = 4GB # 1 Go en bytes 
 
 $DISK_SIZE = $(Get-Disk -Number 1 | Select-Object @{Name="Size"; Expression={$_.Size * 8}}).Size
-echo $DISK_SIZE
+echo "DISK_SIZE: $DISK_SIZE"
 
 #Log File
 $LogPath = "$env:windir\Temp"
@@ -300,7 +300,7 @@ if ($READ_CHECK -eq 'y' -or $READ_CHECK -eq 'Yes') {
     Write-Log-Sub-Step "DISK_SIZE: $DISK_SIZE"
     Write-Log-Sub-Step ""
 
-    Remove-Item "${diskPath}:\*.*" -Force -Recurse
+    #Remove-Item "${diskPath}:\*.*" -Force -Recurse
     Add-content "${diskPath}:/${WIPE_OUT}" -value ""
 
     for ($i = 1; $i -le $passes; $i++) {
